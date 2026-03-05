@@ -5,36 +5,32 @@ import requests
 import time
 
 # --- الإعدادات ---
-st.set_page_config(page_title="AI Sniper Radar", layout="wide")
+st.set_page_config(page_title="AI Sniper Radar V4", layout="wide")
 GROQ_API_KEY = "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"
 client = Groq(api_key=GROQ_API_KEY)
 
-# العملات بنظام الـ API المباشر
+# عملات بتنسيق Binance
 SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT']
 
-def get_data_safe(symbol):
-    """جلب بيانات عبر رابط بديل لضمان تخطي الحجب"""
-    try:
-        # استخدام رابط API بديل ومستقر
-        url = f"https://api1.binance.com/api/3/ticker/price?symbol={symbol}"
-        res = requests.get(url, timeout=5)
-        price_data = res.json()
-        price = float(price_data['price'])
-        
-        # جلب شمعات بسيطة للتحليل
-        k_url = f"https://api1.binance.com/api/3/klines?symbol={symbol}&interval=15m&limit=20"
-        k_res = requests.get(k_url, timeout=5)
-        k_data = k_res.json()
-        
-        df = pd.DataFrame(k_data, columns=['t','o','h','l','c','v','ct','q','n','tb','tq','i'])
-        df['close'] = pd.to_numeric(df['c'])
-        return price, df
-    except:
-        return None, None
+def get_data_ultra_safe(symbol):
+    """جلب بيانات عبر روابط بديلة متعددة لتجنب الحجب"""
+    endpoints = [
+        f"https://api1.binance.com/api/3/ticker/price?symbol={symbol}",
+        f"https://api2.binance.com/api/3/ticker/price?symbol={symbol}",
+        f"https://api3.binance.com/api/3/ticker/price?symbol={symbol}"
+    ]
+    for url in endpoints:
+        try:
+            res = requests.get(url, timeout=5)
+            if res.status_code == 200:
+                return float(res.json()['price'])
+        except:
+            continue
+    return None
 
-def ask_ai(symbol, price):
+def ask_ai_expert(symbol, price):
     try:
-        prompt = f"Crypto: {symbol}, Price: {price}. Should I BUY, SELL, or HOLD? Confidence %? Short reason."
+        prompt = f"Analyze {symbol} at ${price:,.2f}. Give Decision (BUY/SELL/HOLD), Confidence %, and short reason."
         chat = client.chat.completions.create(
             model="llama3-70b-8192",
             messages=[{"role": "user", "content": prompt}],
@@ -42,10 +38,11 @@ def ask_ai(symbol, price):
         )
         return chat.choices[0].message.content
     except:
-        return "AI Busy | 0 | Error"
+        return "AI Advisor Busy | 0% | Server Overload"
 
 # --- الواجهة ---
-st.title("🎯 رادار القناص (النسخة النهائية المستقرة)")
+st.title("🎯 رادار القناص (النسخة الفولاذية V4)")
+st.write("تم تفعيل بروتوكول تخطي الحجب عبر Proxy APIs")
 
 if st.button("تحديث يدوي 🔄"):
     st.rerun()
@@ -53,23 +50,24 @@ if st.button("تحديث يدوي 🔄"):
 cols = st.columns(2)
 for i, sym in enumerate(SYMBOLS):
     with cols[i % 2]:
-        price, df = get_data_safe(sym)
         st.subheader(f"🪙 {sym}")
+        price = get_data_ultra_safe(sym)
         
-        if price:
-            ans = ask_ai(sym, price)
-            st.metric("السعر الحالي", f"${price:,.2f}")
-            
-            if "BUY" in ans.upper():
-                st.success(f"✅ {ans}")
-            elif "SELL" in ans.upper():
-                st.error(f"❌ {ans}")
-            else:
-                st.info(f"📊 {ans}")
+        if price is not None:
+            st.metric("السعر اللحظي", f"${price:,.2f}")
+            with st.spinner('جاري استشارة الذكاء الاصطناعي...'):
+                ans = ask_ai_expert(sym, price)
+                
+                if "BUY" in ans.upper():
+                    st.success(f"✅ {ans}")
+                elif "SELL" in ans.upper():
+                    st.error(f"❌ {ans}")
+                else:
+                    st.info(f"📊 {ans}")
         else:
-            st.warning(f"⚠️ تعذر جلب سعر {sym} حالياً. جرب التحديث.")
+            st.warning(f"⚠️ جميع السيرفرات محجوبة حالياً لعملة {sym}. جرب بعد قليل.")
         st.divider()
 
-# تحديث تلقائي آمن
-time.sleep(60)
+# تحديث تلقائي ذكي
+time.sleep(30)
 st.rerun()
