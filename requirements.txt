@@ -1,2 +1,5 @@
+streamlit
 ccxt
 pandas
+groq
+plotly
