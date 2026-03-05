@@ -1,97 +1,77 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
 from groq import Groq
 import plotly.graph_objects as go
-import time
+import requests
 from datetime import datetime
+import time
 
-# --- الإعدادات الأساسية ---
-st.set_page_config(page_title="AI Multi-Scanner Pro", layout="wide")
-
-# مفتاح Groq الخاص بك
+# --- الإعدادات ---
+st.set_page_config(page_title="AI Market Scanner Pro", layout="wide")
 GROQ_API_KEY = "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"
-
-# تهيئة Groq
 client = Groq(api_key=GROQ_API_KEY)
 
-# قائمة العملات بتنسيق Yahoo Finance (BTC-USD بدل BTC/USDT)
-SYMBOLS = ['BTC-USD', 'ETH-USD', 'SOL-USD', 'BNB-USD', 'XRP-USD', 'ADA-USD']
+# قائمة العملات
+SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT', 'ADAUSDT']
 
-def get_data_and_analyze(symbol):
+def fetch_data_direct(symbol):
+    """جلب البيانات عبر API مباشر لضمان تخطي الحجب"""
     try:
-        # جلب البيانات من Yahoo Finance (فريم 15 دقيقة لآخر يومين)
-        ticker = yf.Ticker(symbol)
-        df = ticker.history(period="2d", interval="15m")
-        
-        if df.empty or len(df) < 20:
-            return None, "No Data"
+        url = f"https://api.binance.com/api/3/klines?symbol={symbol}&interval=15m&limit=50"
+        response = requests.get(url, timeout=10)
+        data = response.json()
+        df = pd.DataFrame(data, columns=['time', 'open', 'high', 'low', 'close', 'vol', 'close_time', 'qav', 'num_trades', 'taker_base', 'taker_quote', 'ignore'])
+        df['time'] = pd.to_datetime(df['time'], unit='ms')
+        df[['open', 'high', 'low', 'close']] = df[['open', 'high', 'low', 'close']].apply(pd.to_numeric)
+        return df
+    except:
+        return None
 
-        current_price = df['Close'].iloc[-1]
-        
-        # حساب مؤشر RSI بسيط
-        delta = df['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rsi = 100 - (100 / (1 + (gain.iloc[-1] / loss.iloc[-1])))
-        
-        # سؤال Groq AI
-        prompt = f"""
-        Quick Financial Analysis for {symbol}:
-        - Price: {current_price:.2f}
-        - RSI: {rsi:.2f}
-        Decision (BUY/SELL/HOLD)? Confidence %? One short reason.
-        Format: القرار | الثقة | السبب
-        """
-        
-        chat = client.chat.completions.create(
-            model="llama3-70b-8192",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1
-        )
-        ai_res = chat.choices[0].message.content
-        return df, ai_res
-    except Exception as e:
-        return None, f"Error: {str(e)}"
+def analyze_with_ai(symbol, price, df):
+    # حساب RSI بسيط يدوياً
+    delta = df['close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean().iloc[-1]
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean().iloc[-1]
+    rsi = 100 - (100 / (1 + (gain / loss))) if loss != 0 else 50
+    
+    prompt = f"Analyze {symbol} at ${price:.2f}. RSI: {rsi:.2f}. Decision (BUY/SELL/HOLD)? Confidence %? Reason?"
+    chat = client.chat.completions.create(
+        model="llama3-70b-8192",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.1
+    )
+    return chat.choices[0].message.content, rsi
 
-# --- واجهة الموقع ---
-st.title("🎯 رادار الفرص الذهبية (نسخة Yahoo Finance)")
-st.write(f"⏱️ آخر تحديث للسوق: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+# --- الواجهة ---
+st.title("🎯 رادار الفرص الذهبية (V3 - النسخة المستقرة)")
+st.write(f"🕒 تحديث مباشر: {datetime.now().strftime('%H:%M:%S')}")
 
-# خيارات التحكم
-with st.sidebar:
-    st.header("⚙️ التحكم")
-    auto_refresh = st.checkbox("تحديث تلقائي كل دقيقة", value=False)
-    st.info("هذه النسخة تستخدم Yahoo Finance لتجنب مشاكل الحجب.")
+auto_refresh = st.sidebar.checkbox("تحديث تلقائي كل 30 ثانية", value=True)
 
-# عرض النتائج في شبكة (Grid)
 cols = st.columns(2)
-
 for i, sym in enumerate(SYMBOLS):
     with cols[i % 2]:
-        df, result = get_data_and_analyze(sym)
-        
-        st.subheader(f"🪙 {sym}")
+        df = fetch_data_direct(sym)
         if df is not None:
-            # تمييز القرار بالألوان
-            if "BUY" in result.upper() and "90" in result:
-                st.success(f"🔥 إشارة دخول: {result}")
-            elif "SELL" in result.upper() and "90" in result:
-                st.error(f"⚠️ إشارة خروج: {result}")
-            else:
-                st.info(f"📊 التحليل: {result}")
+            price = df['close'].iloc[-1]
+            analysis, rsi_val = analyze_with_ai(sym, price, df)
             
-            # رسم شارت مصغر
-            fig = go.Figure(data=[go.Candlestick(
-                x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close']
-            )])
-            fig.update_layout(xaxis_rangeslider_visible=False, height=300, margin=dict(l=0,r=0,t=0,b=0))
+            st.subheader(f"🪙 {sym}")
+            if "BUY" in analysis.upper() and "90" in analysis:
+                st.success(f"🔥 إشارة شراء: {analysis}")
+            elif "SELL" in analysis.upper() and "90" in analysis:
+                st.error(f"⚠️ إشارة بيع: {analysis}")
+            else:
+                st.info(f"📊 التحليل: {analysis}")
+            
+            # الشارت
+            fig = go.Figure(data=[go.Candlestick(x=df['time'], open=df['open'], high=df['high'], low=df['low'], close=df['close'])])
+            fig.update_layout(xaxis_rangeslider_visible=False, height=250, margin=dict(l=0,r=0,t=0,b=0))
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.error(f"❌ تعذر جلب بيانات {sym}")
+            st.error(f"❌ تعذر الاتصال ببيانات {sym}")
         st.divider()
 
-# التحديث التلقائي
 if auto_refresh:
-    time.sleep(60)
+    time.sleep(30)
     st.rerun()
