@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 from groq import Groq
-import plotly.graph_objects as go
 import requests
 import time
 
@@ -10,64 +9,67 @@ st.set_page_config(page_title="AI Sniper Radar", layout="wide")
 GROQ_API_KEY = "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"
 client = Groq(api_key=GROQ_API_KEY)
 
-# العملات
+# العملات بنظام الـ API المباشر
 SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT']
 
-def get_data(symbol):
-    """جلب بيانات مباشرة بدون مكتبات وسيطة"""
+def get_data_safe(symbol):
+    """جلب بيانات عبر رابط بديل لضمان تخطي الحجب"""
     try:
-        url = f"https://api.binance.com/api/3/klines?symbol={symbol}&interval=15m&limit=50"
-        res = requests.get(url, timeout=10)
-        data = res.json()
-        df = pd.DataFrame(data, columns=['time', 'open', 'high', 'low', 'close', 'v', 'ct', 'q', 'n', 'tb', 'tq', 'i'])
-        df[['open', 'high', 'low', 'close']] = df[['open', 'high', 'low', 'close']].apply(pd.to_numeric)
-        df['time'] = pd.to_datetime(df['time'], unit='ms')
-        return df
+        # استخدام رابط API بديل ومستقر
+        url = f"https://api1.binance.com/api/3/ticker/price?symbol={symbol}"
+        res = requests.get(url, timeout=5)
+        price_data = res.json()
+        price = float(price_data['price'])
+        
+        # جلب شمعات بسيطة للتحليل
+        k_url = f"https://api1.binance.com/api/3/klines?symbol={symbol}&interval=15m&limit=20"
+        k_res = requests.get(k_url, timeout=5)
+        k_data = k_res.json()
+        
+        df = pd.DataFrame(k_data, columns=['t','o','h','l','c','v','ct','q','n','tb','tq','i'])
+        df['close'] = pd.to_numeric(df['c'])
+        return price, df
     except:
-        return None
+        return None, None
 
-def ask_ai(symbol, price, df):
-    # حساب RSI سريع
-    delta = df['close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(14).mean().iloc[-1]
-    loss = (-delta.where(delta < 0, 0)).rolling(14).mean().iloc[-1]
-    rsi = 100 - (100 / (1 + (gain / loss))) if loss != 0 else 50
-    
-    prompt = f"Crypto: {symbol}, Price: {price}, RSI: {rsi:.2f}. Decision (BUY/SELL/HOLD)? Confidence %? Reason?"
-    chat = client.chat.completions.create(
-        model="llama3-70b-8192",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.1
-    )
-    return chat.choices[0].message.content
+def ask_ai(symbol, price):
+    try:
+        prompt = f"Crypto: {symbol}, Price: {price}. Should I BUY, SELL, or HOLD? Confidence %? Short reason."
+        chat = client.chat.completions.create(
+            model="llama3-70b-8192",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1
+        )
+        return chat.choices[0].message.content
+    except:
+        return "AI Busy | 0 | Error"
 
 # --- الواجهة ---
-st.title("🎯 رادار القناص الذكي (نسخة V3 المستقرة)")
+st.title("🎯 رادار القناص (النسخة النهائية المستقرة)")
 
-if st.button("تحديث يدوي 🔄") or True:
-    cols = st.columns(2)
-    for i, sym in enumerate(SYMBOLS):
-        with cols[i % 2]:
-            df = get_data(sym)
-            if df is not None:
-                p = df['close'].iloc[-1]
-                ans = ask_ai(sym, p, df)
-                st.subheader(f"🪙 {sym}")
-                
-                # تلوين النتيجة
-                if "BUY" in ans.upper() and "90" in ans:
-                    st.success(f"✅ إشارة قوية: {ans}")
-                elif "SELL" in ans.upper() and "90" in ans:
-                    st.error(f"❌ إشارة بيع: {ans}")
-                else:
-                    st.info(f"📊 التحليل: {ans}")
-                
-                # الشارت
-                fig = go.Figure(data=[go.Candlestick(x=df['time'], open=df['open'], high=df['high'], low=df['low'], close=df['close'])])
-                fig.update_layout(xaxis_rangeslider_visible=False, height=250, margin=dict(l=0,r=0,t=0,b=0))
-                st.plotly_chart(fig, use_container_width=True)
+if st.button("تحديث يدوي 🔄"):
+    st.rerun()
+
+cols = st.columns(2)
+for i, sym in enumerate(SYMBOLS):
+    with cols[i % 2]:
+        price, df = get_data_safe(sym)
+        st.subheader(f"🪙 {sym}")
+        
+        if price:
+            ans = ask_ai(sym, price)
+            st.metric("السعر الحالي", f"${price:,.2f}")
+            
+            if "BUY" in ans.upper():
+                st.success(f"✅ {ans}")
+            elif "SELL" in ans.upper():
+                st.error(f"❌ {ans}")
             else:
-                st.error(f"❌ تعذر الوصول لبيانات {sym}")
-            st.divider()
+                st.info(f"📊 {ans}")
+        else:
+            st.warning(f"⚠️ تعذر جلب سعر {sym} حالياً. جرب التحديث.")
+        st.divider()
 
-st.sidebar.write("الحالة: متصل عبر API مباشر")
+# تحديث تلقائي آمن
+time.sleep(60)
+st.rerun()
