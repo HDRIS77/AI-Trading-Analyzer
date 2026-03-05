@@ -5,32 +5,26 @@ import requests
 import time
 
 # --- الإعدادات ---
-st.set_page_config(page_title="AI Sniper Radar V4", layout="wide")
+st.set_page_config(page_title="AI Sniper Radar V5", layout="wide")
 GROQ_API_KEY = "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"
 client = Groq(api_key=GROQ_API_KEY)
 
-# عملات بتنسيق Binance
-SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT']
+# العملات (بتنسيق CryptoCompare)
+SYMBOLS = ['BTC', 'ETH', 'SOL', 'BNB']
 
-def get_data_ultra_safe(symbol):
-    """جلب بيانات عبر روابط بديلة متعددة لتجنب الحجب"""
-    endpoints = [
-        f"https://api1.binance.com/api/3/ticker/price?symbol={symbol}",
-        f"https://api2.binance.com/api/3/ticker/price?symbol={symbol}",
-        f"https://api3.binance.com/api/3/ticker/price?symbol={symbol}"
-    ]
-    for url in endpoints:
-        try:
-            res = requests.get(url, timeout=5)
-            if res.status_code == 200:
-                return float(res.json()['price'])
-        except:
-            continue
-    return None
+def fetch_price_unblocked(symbol):
+    """جلب السعر من مصدر بديل تماماً (CryptoCompare)"""
+    try:
+        url = f"https://min-api.cryptocompare.com/data/price?fsym={symbol}&tsyms=USD"
+        res = requests.get(url, timeout=10)
+        data = res.json()
+        return data.get('USD')
+    except:
+        return None
 
 def ask_ai_expert(symbol, price):
     try:
-        prompt = f"Analyze {symbol} at ${price:,.2f}. Give Decision (BUY/SELL/HOLD), Confidence %, and short reason."
+        prompt = f"Crypto: {symbol}, Price: ${price:,.2f}. Should I BUY, SELL, or HOLD? Give confidence % and 1 short reason."
         chat = client.chat.completions.create(
             model="llama3-70b-8192",
             messages=[{"role": "user", "content": prompt}],
@@ -38,11 +32,11 @@ def ask_ai_expert(symbol, price):
         )
         return chat.choices[0].message.content
     except:
-        return "AI Advisor Busy | 0% | Server Overload"
+        return "AI Busy | 0% | Try later"
 
 # --- الواجهة ---
-st.title("🎯 رادار القناص (النسخة الفولاذية V4)")
-st.write("تم تفعيل بروتوكول تخطي الحجب عبر Proxy APIs")
+st.title("🎯 رادار القناص (النسخة V5 - محرك CryptoCompare)")
+st.write("تم استبدال محرك البيانات بمصدر أكاديمي لتخطي الحجب الشامل.")
 
 if st.button("تحديث يدوي 🔄"):
     st.rerun()
@@ -50,12 +44,12 @@ if st.button("تحديث يدوي 🔄"):
 cols = st.columns(2)
 for i, sym in enumerate(SYMBOLS):
     with cols[i % 2]:
-        st.subheader(f"🪙 {sym}")
-        price = get_data_ultra_safe(sym)
+        st.subheader(f"🪙 {sym}/USD")
+        price = fetch_price_unblocked(sym)
         
-        if price is not None:
-            st.metric("السعر اللحظي", f"${price:,.2f}")
-            with st.spinner('جاري استشارة الذكاء الاصطناعي...'):
+        if price:
+            st.metric("السعر الحالي", f"${price:,.2f}")
+            with st.spinner(f'جاري تحليل {sym}...'):
                 ans = ask_ai_expert(sym, price)
                 
                 if "BUY" in ans.upper():
@@ -65,9 +59,9 @@ for i, sym in enumerate(SYMBOLS):
                 else:
                     st.info(f"📊 {ans}")
         else:
-            st.warning(f"⚠️ جميع السيرفرات محجوبة حالياً لعملة {sym}. جرب بعد قليل.")
+            st.warning(f"⚠️ عذراً، حتى المصدر البديل محجوب عن السيرفر حالياً.")
         st.divider()
 
-# تحديث تلقائي ذكي
-time.sleep(30)
+# تحديث تلقائي كل 60 ثانية
+time.sleep(60)
 st.rerun()
