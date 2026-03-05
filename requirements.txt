@@ -2,4 +2,3 @@ streamlit
 groq
 pandas
 requests
-plotly
