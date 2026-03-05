@@ -1,5 +1,5 @@
 streamlit
-pandas
 groq
-plotly
+pandas
 requests
+plotly
